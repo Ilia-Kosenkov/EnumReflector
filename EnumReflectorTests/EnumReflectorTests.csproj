@@ -6,6 +6,9 @@
 		<Nullable>enable</Nullable>
 		<IsPackable>false</IsPackable>
 	</PropertyGroup>
+	<PropertyGroup>
+		<SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+	</PropertyGroup>
 
 	<ItemGroup>
 		<PackageReference Include="NUnit" Version="3.12.0" />
