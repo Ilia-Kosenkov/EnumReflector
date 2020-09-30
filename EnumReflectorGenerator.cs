@@ -73,65 +73,67 @@ namespace {AttributeNamespace}
 
 
             context.AddSource(nameof(GenerateAllEnumValues), GenerateAllEnumValues(preProcessedEnums));
+        }
 
+        
 
-            SourceText GenerateEnumExtension(EnumProcessor proc)
+        private SourceText GenerateAllEnumValues(IEnumerable<(EnumDeclarationSyntax EnumDeclaration, EnumProcessor Processor)> input)
+        {
+            var sb = new StringBuilder();
+            AddPartialClassHeader(sb);
+            sb.AppendLineTabbed($"public static ({typeof(string).FullName} Name, T Value)[] GetEnumValues<T>() where T : {typeof(Enum).FullName}", 2);
+            // Method body scope
+            using (new ScopeWriter(sb, 2))
             {
-                var fullEnumType = proc.EnumType.ToDisplayString(FullTypeFormat);
-                var sb = new StringBuilder();
-                AddPartialClassHeader(sb);
-
-                sb.AppendLine($"\t\tpublic static string GetEnumName(this {fullEnumType} @this)");
-                using (var _ = new ScopeWriter(sb, 2))
+                foreach (var (_, proc) in input)
                 {
-                    foreach (var item in proc.Process())
-                        sb.AppendLine(
-                            $"\t\t\tif (@this == {fullEnumType}.{item.MemberName.ToDisplayString(FullTypeFormat)}) return\"{item.MemberName.Name}\";");
-
-                    sb.AppendLine($"\t\t\tthrow new {typeof(Exception).FullName}(\"Undefined enum value\");");
-                }
-
-
-                AddPartialClassFooter(sb);
-
-                return SourceText.From(sb.ToString(), Encoding.UTF8);
-            }
-
-            SourceText GenerateAllEnumValues(
-                IEnumerable<(EnumDeclarationSyntax EnumDeclaration, EnumProcessor Processor)> input)
-            {
-                var sb = new StringBuilder();
-                AddPartialClassHeader(sb);
-                sb.AppendLineTabbed($"public static ({typeof(string).FullName} Name, T Value)[] GetEnumValues<T>() where T : {typeof(Enum).FullName}", 2);
-                using (var methodScope = new ScopeWriter(sb, 2))
-                {
-                    foreach (var (_, proc) in input)
+                    var fullEnumType = proc.EnumType.ToDisplayString(FullTypeFormat);
+                    var members = proc.Process();
+                    sb.AppendLineTabbed($"if (typeof(T) == typeof({fullEnumType}))", 3);
+                    // If condition scope
+                    // ReSharper disable once ConvertToUsingDeclaration
+                    using (new ScopeWriter(sb, 3))
                     {
-                        var fullEnumType = proc.EnumType.ToDisplayString(FullTypeFormat);
-                        var members = proc.Process();
-                        sb.AppendLineTabbed($"if (typeof(T) == typeof({fullEnumType}))", 3);
-                        using (var ifScope = new ScopeWriter(sb, 3))
+                        sb.AppendLineTabbed($"return (({typeof(string).FullName} Name, T Value)[])({typeof(object).FullName}) " + $"new ({typeof(string).FullName} Name, {fullEnumType} Value)[]", 4);
+                        // Array initialization scope
+                        using (new ScopeWriter(sb, 4, true))
                         {
-                            sb.AppendLineTabbed($"return (({typeof(string).FullName} Name, T Value)[])({typeof(object).FullName}) " +
-                                                $"new ({typeof(string).FullName} Name, {fullEnumType} Value)[]", 4);
-                            using (var arrayInitScope = new ScopeWriter(sb, 4, true))
+                            foreach (var member in members)
                             {
-                                foreach (var member in members)
-                                {
-                                    var memberName = member.MemberName.ToDisplayString(FullTypeFormat);
-                                    sb.AppendLineTabbed($"(\"{memberName}\", {fullEnumType}.{memberName}),", 5);
-                                }
+                                var memberName = member.MemberName.ToDisplayString(FullTypeFormat);
+                                sb.AppendLineTabbed($"(\"{memberName}\", {fullEnumType}.{memberName}),", 5);
                             }
                         }
                     }
-                    sb.AppendLineTabbed($"throw new {typeof(NotSupportedException).FullName}(\"Only enums declared with [{AttributeFullName}] are supported.\");", 3);
                 }
 
-                AddPartialClassFooter(sb);
-
-                return SourceText.From(sb.ToString(), Encoding.UTF8);
-
+                sb.AppendLineTabbed($"throw new {typeof(NotSupportedException).FullName}(\"Only enums declared with [{AttributeFullName}] are supported.\");", 3);
             }
+
+            AddPartialClassFooter(sb);
+
+            return SourceText.From(sb.ToString(), Encoding.UTF8);
+        }
+
+        private static SourceText GenerateEnumExtension(EnumProcessor proc)
+        {
+            var fullEnumType = proc.EnumType.ToDisplayString(FullTypeFormat);
+            var sb = new StringBuilder();
+            AddPartialClassHeader(sb);
+
+            sb.AppendLineTabbed($"public static string GetEnumName(this {fullEnumType} @this)", 2);
+            // Method body scope
+            using (var _ = new ScopeWriter(sb, 2))
+            {
+                foreach (var item in proc.Process()) sb.AppendLineTabbed($"if (@this == {fullEnumType}.{item.MemberName.ToDisplayString(FullTypeFormat)}) return\"{item.MemberName.Name}\";", 3);
+
+                sb.AppendLineTabbed($"throw new {typeof(Exception).FullName}(\"Undefined enum value.\");", 3);
+            }
+
+
+            AddPartialClassFooter(sb);
+
+            return SourceText.From(sb.ToString(), Encoding.UTF8);
         }
 
         public void Initialize(InitializationContext context)
