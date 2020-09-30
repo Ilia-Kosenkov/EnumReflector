@@ -18,6 +18,10 @@ Similarly works `(String Name, T Value)[] GetEnumValues<T>() where T : Enum`, wh
 Again, this is achieved by directly initializing array with tuples with constant values, no reflection applied.
 I expect JIT to be able to do some magic here in runtime, though not sure.
 
+# Plans
 Tests & benchmarks coming later -- it is very well possible that BCL's solution works better.
 
 The important limitation is that this method works only with the user-defined enums, but it is very easy to fall-back to BCL's implementation for all other cases.
+
+Another thing is that string-enum value pairs can be also cached as static dictionaries, which will allow much faster enum parsing, relying on dictionary's implementation of search by key.
+This can be done, again, reflection free.
