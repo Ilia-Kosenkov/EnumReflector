@@ -13,10 +13,13 @@ namespace EnumReflector
     public class EnumReflectorGenerator : ISourceGenerator
     {
         public const string AttributeNamespace = @"EnumReflector";
+        public const string EmittedClassName = @"EnumExtensions";
         public const string AttributeShortTypeName = @"ReflectEnum";
 
         private static readonly SymbolDisplayFormat FullTypeFormat = new SymbolDisplayFormat(
             typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces);
+        public static string AttributeTypeName { get; } = @$"{AttributeShortTypeName}Attribute";
+        public static string AttributeFullName { get; } = $"{AttributeNamespace}.{AttributeTypeName}";
         private static string AttributeText { get; } = $@"
 using System;
 namespace {AttributeNamespace}
@@ -32,12 +35,12 @@ namespace {AttributeNamespace}
 ";
 
 
-        public static string AttributeTypeName { get; } = @$"{AttributeShortTypeName}Attribute";
-        public static string AttributeFullName { get; } = $"{AttributeNamespace}.{AttributeTypeName}";
 
 
         // Can be used to switch off nullable support?
         private string NullableSymbol { get; } = "?";
+        private string NullableCoerceSymbol { get; } = "!";
+
 
         public void Execute(SourceGeneratorContext context)
         {
@@ -65,31 +68,84 @@ namespace {AttributeNamespace}
                 .Select(x => (EnumDeclaration: x, Processor: new EnumProcessor(x, compilation)))
                 .ToList();
 
-            foreach (var (enumItem, _) in preProcessedEnums)
-            {
-                var proc = new EnumProcessor(enumItem, compilation);
-                var src = GenerateEnumExtension(proc);
-                context.AddSource(proc.EnumType.Name, src);
-            }
+            //foreach (var (enumItem, _) in preProcessedEnums)
+            //{
+            //    var proc = new EnumProcessor(enumItem, compilation);
+            //    var src = GenerateEnumExtension(proc);
+            //    context.AddSource(proc.EnumType.Name, src);
+            //}
 
 
             context.AddSource(nameof(GenerateAllEnumValues), GenerateAllEnumValues(preProcessedEnums));
             context.AddSource(nameof(GenerateAllEnumNames), GenerateAllEnumNames(preProcessedEnums));
+            context.AddSource(nameof(GenerateTryParseEnum), GenerateTryParseEnum(preProcessedEnums));
 
         }
 
+        private SourceText GenerateTryParseEnum(
+            IEnumerable<(EnumDeclarationSyntax EnumDeclaration, EnumProcessor Processor)> input)
+        {
+            var sb = new StringBuilder();
+            AddPartialClassHeader(sb);
+            sb.AppendLineTabbed($"public static bool TryParseEnum<T>({typeof(string).FullName} name, out T result) where T : {typeof(Enum).FullName}", 2);
+            
+            // Method body scope
+            using (new ScopeWriter(sb, 2))
+            {
+                sb.AppendLineTabbed($"if ({typeof(string).FullName}.{nameof(string.IsNullOrWhiteSpace)}(name))", 3);
+                sb.AppendLineTabbed($"throw new {typeof(ArgumentNullException).FullName}(nameof(name));", 4);
+
+                sb.AppendLineTabbed($"var values = {AttributeNamespace}.{EmittedClassName}.GetEnumValues<T>();", 3);
+                sb.AppendLineTabbed($"result = default(T){NullableCoerceSymbol};", 3);
+                sb.AppendLineTabbed("foreach (var item in values)", 3);
+                sb.AppendLineTabbed($"if (item.Item1.Equals(name, {typeof(StringComparison).FullName}.{nameof(StringComparison.Ordinal)}))", 4);
+                // If condition scope
+                using (new ScopeWriter(sb, 4))
+                {
+                    sb.AppendLineTabbed("result = item.Item2;", 5);
+                    sb.AppendLineTabbed("return true;", 5);
+                }
+
+                sb.AppendLineTabbed("return false;", 3);
+            }
+            AddPartialClassFooter(sb);
+            return SourceText.From(sb.ToString(), Encoding.UTF8);
+        }
         private SourceText GenerateAllEnumNames(
             IEnumerable<(EnumDeclarationSyntax EnumDeclaration, EnumProcessor Processor)> input)
         {
             var sb = new StringBuilder();
             AddPartialClassHeader(sb);
             sb.AppendLineTabbed(
-                $"public static {typeof(string).FullName}{NullableSymbol} GetEnumNameEx<T>(this T @this) where T : {typeof(Enum).FullName}");
+                $"public static {typeof(string).FullName}{NullableSymbol} GetEnumName<T>(this T @this) where T : {typeof(Enum).FullName}",
+                2);
             // Method body scope
             using (new ScopeWriter(sb, 2))
             {
-                sb.AppendLineTabbed($"throw new {typeof(NotImplementedException).FullName}();", 3);
+                foreach (var (_, proc) in input)
+                {
+                    var fullEnumType = proc.EnumType.ToDisplayString(FullTypeFormat);
+                    var members = proc.Process();
+                    sb.AppendLineTabbed($"if (typeof(T) == typeof({fullEnumType}))", 3);
+                    // If condition scope
+                    // ReSharper disable once ConvertToUsingDeclaration
+                    using (new ScopeWriter(sb, 3))
+                    {
+                        sb.AppendLineTabbed($"var value = ({fullEnumType})({typeof(object).FullName})@this;", 4);
+                        foreach (var member in members)
+                        {
+                            var memberName = member.MemberName.ToDisplayString(FullTypeFormat);
+                            sb.AppendLineTabbed($"if (value == {fullEnumType}.{memberName}) return \"{memberName}\";", 4);
+                        }
+
+                        sb.AppendLineTabbed("return null;", 4);
+                    }
+                }
+
+                sb.AppendLineTabbed($"throw new {typeof(NotSupportedException).FullName}(\"Only enums declared with [{AttributeFullName}] are supported.\");", 3);
+
             }
+
             AddPartialClassFooter(sb);
 
             return SourceText.From(sb.ToString(), Encoding.UTF8);
@@ -163,9 +219,9 @@ namespace {AttributeNamespace}
 
         private static void AddPartialClassHeader(StringBuilder sb)
         {
-            sb.AppendLineTabbed("namespace EnumReflector");
+            sb.AppendLineTabbed($"namespace {AttributeNamespace}");
             sb.AppendLineTabbed("{");
-            sb.AppendLineTabbed("public static partial class EnumExtensions", 2);
+            sb.AppendLineTabbed($"public static partial class {EmittedClassName}", 1);
             sb.AppendLineTabbed("{", 1);
         }
 

@@ -32,5 +32,8 @@ namespace EnumReflector
 
         public static StringBuilder AppendLineTabbed(this StringBuilder builder, string line, int nTabs = 0)
             => builder.Append(new string('\t', nTabs)).AppendLine(line);
+
+        public static StringBuilder AppendLineTabbed(this StringBuilder builder, int nTabs = 0)
+            => builder.Append(new string('\t', nTabs));
     }
 }
