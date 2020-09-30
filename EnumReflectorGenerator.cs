@@ -105,7 +105,7 @@ namespace {AttributeNamespace}
                 sb.AppendLineTabbed($"public static ({typeof(string).FullName} Name, T Value)[] GetEnumValues<T>() where T : {typeof(Enum).FullName}", 2);
                 using (var methodScope = new ScopeWriter(sb, 2))
                 {
-                    foreach (var (declaration, proc) in input)
+                    foreach (var (_, proc) in input)
                     {
                         var fullEnumType = proc.EnumType.ToDisplayString(FullTypeFormat);
                         var members = proc.Process();
@@ -148,16 +148,16 @@ namespace {AttributeNamespace}
 
         private static void AddPartialClassHeader(StringBuilder sb)
         {
-            sb.AppendLine("namespace EnumReflector");
-            sb.AppendLine("{");
-            sb.AppendLine("\tpublic static partial class EnumExtensions");
-            sb.AppendLine("\t{");
+            sb.AppendLineTabbed("namespace EnumReflector");
+            sb.AppendLineTabbed("{");
+            sb.AppendLineTabbed("public static partial class EnumExtensions", 2);
+            sb.AppendLineTabbed("{", 1);
         }
 
         private static void AddPartialClassFooter(StringBuilder sb)
         {
-            sb.AppendLine("\t}");
-            sb.AppendLine("}");
+            sb.AppendLineTabbed("}", 1);
+            sb.AppendLineTabbed("}");
         }
     }
 }
