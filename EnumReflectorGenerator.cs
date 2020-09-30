@@ -17,9 +17,6 @@ namespace EnumReflector
 
         private static readonly SymbolDisplayFormat FullTypeFormat = new SymbolDisplayFormat(
             typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces);
-        public static string AttributeTypeName { get; } = @$"{AttributeShortTypeName}Attribute";
-        public static string AttributeFullName { get; } = $"{AttributeNamespace}.{AttributeTypeName}";
-
         private static string AttributeText { get; } = $@"
 using System;
 namespace {AttributeNamespace}
@@ -35,6 +32,12 @@ namespace {AttributeNamespace}
 ";
 
 
+        public static string AttributeTypeName { get; } = @$"{AttributeShortTypeName}Attribute";
+        public static string AttributeFullName { get; } = $"{AttributeNamespace}.{AttributeTypeName}";
+
+
+        // Can be used to switch off nullable support?
+        private string NullableSymbol { get; } = "?";
 
         public void Execute(SourceGeneratorContext context)
         {
@@ -43,7 +46,6 @@ namespace {AttributeNamespace}
             // TODO : Improve
             CSharpParseOptions options = (context.Compilation as CSharpCompilation)?.SyntaxTrees[0]?.Options as CSharpParseOptions ?? throw new InvalidOperationException();
             Compilation compilation = context.Compilation.AddSyntaxTrees(CSharpSyntaxTree.ParseText(SourceText.From(AttributeText, Encoding.UTF8), options));
-
             if (!(context.SyntaxReceiver is EnumSyntaxReceiver receiver))
                 return;
 
@@ -72,9 +74,27 @@ namespace {AttributeNamespace}
 
 
             context.AddSource(nameof(GenerateAllEnumValues), GenerateAllEnumValues(preProcessedEnums));
+            context.AddSource(nameof(GenerateAllEnumNames), GenerateAllEnumNames(preProcessedEnums));
+
         }
 
-        
+        private SourceText GenerateAllEnumNames(
+            IEnumerable<(EnumDeclarationSyntax EnumDeclaration, EnumProcessor Processor)> input)
+        {
+            var sb = new StringBuilder();
+            AddPartialClassHeader(sb);
+            sb.AppendLineTabbed(
+                $"public static {typeof(string).FullName}{NullableSymbol} GetEnumNameEx<T>(this T @this) where T : {typeof(Enum).FullName}");
+            // Method body scope
+            using (new ScopeWriter(sb, 2))
+            {
+                sb.AppendLineTabbed($"throw new {typeof(NotImplementedException).FullName}();", 3);
+            }
+            AddPartialClassFooter(sb);
+
+            return SourceText.From(sb.ToString(), Encoding.UTF8);
+
+        }
 
         private SourceText GenerateAllEnumValues(IEnumerable<(EnumDeclarationSyntax EnumDeclaration, EnumProcessor Processor)> input)
         {
