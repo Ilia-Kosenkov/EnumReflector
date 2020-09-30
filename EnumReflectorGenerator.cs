@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -16,7 +15,7 @@ namespace EnumReflector
         public const string AttributeNamespace = @"EnumReflector";
         public const string AttributeShortTypeName = @"ReflectEnum";
 
-        private static SymbolDisplayFormat FullTypeFormat = new SymbolDisplayFormat(
+        private static readonly SymbolDisplayFormat FullTypeFormat = new SymbolDisplayFormat(
             typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces);
         public static string AttributeTypeName { get; } = @$"{AttributeShortTypeName}Attribute";
         public static string AttributeFullName { get; } = $"{AttributeNamespace}.{AttributeTypeName}";
@@ -141,12 +140,6 @@ namespace {AttributeNamespace}
             context.RegisterForSyntaxNotifications(() => new EnumSyntaxReceiver(AttributeNamespace, AttributeShortTypeName));
         }
 
-      
-
-        private void EmitExtensionForEnum(EnumProcessor proc)
-        {
-
-        }
 
         private static void AddPartialClassHeader(StringBuilder sb)
         {
