@@ -35,5 +35,16 @@ namespace EnumReflector
 
         public static StringBuilder AppendLineTabbed(this StringBuilder builder, int nTabs = 0)
             => builder.Append(new string('\t', nTabs));
+
+        public static void ReplaceDotsWithUnderscores(this ReadOnlySpan<char> src, Span<char> target)
+        {
+            if(target.Length < src.Length)
+                throw new ArgumentOutOfRangeException(nameof(target));
+
+            src.CopyTo(target);
+            for(var i = 0; i < src.Length; i++)
+                if (target[i] == '.')
+                    target[i] = '_';
+        }
     }
 }

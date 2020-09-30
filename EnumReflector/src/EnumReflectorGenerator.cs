@@ -12,6 +12,8 @@ namespace EnumReflector
     [Generator]
     public class EnumReflectorGenerator : ISourceGenerator
     {
+        private const int MaxStackAlloc = 512;
+
         public const string AttributeNamespace = @"EnumReflector";
         public const string EmittedClassName = @"EnumExtensions";
         public const string AttributeShortTypeName = @"ReflectEnum";
@@ -68,22 +70,21 @@ namespace {AttributeNamespace}
                 .Select(x => (EnumDeclaration: x, Processor: new EnumProcessor(x, compilation)))
                 .ToList();
 
-            //foreach (var (enumItem, _) in preProcessedEnums)
-            //{
-            //    var proc = new EnumProcessor(enumItem, compilation);
-            //    var src = GenerateEnumExtension(proc);
-            //    context.AddSource(proc.EnumType.Name, src);
-            //}
+            foreach (var (_, proc) in preProcessedEnums)
+            {
+                context.AddSource(nameof(GenerateEnumNames) + "_" + proc.EnumType.ToDisplayString(FullTypeFormat), GenerateEnumNames(proc));
+                context.AddSource(nameof(GenerateEnumNamesAndValues) + "_" + proc.EnumType.ToDisplayString(FullTypeFormat), GenerateEnumNamesAndValues(proc));
+
+            }
 
 
             context.AddSource(nameof(GenerateAllEnumValues), GenerateAllEnumValues(preProcessedEnums));
             context.AddSource(nameof(GenerateAllEnumNames), GenerateAllEnumNames(preProcessedEnums));
-            context.AddSource(nameof(GenerateTryParseEnum), GenerateTryParseEnum(preProcessedEnums));
+            context.AddSource(nameof(GenerateTryParseEnum), GenerateTryParseEnum());
 
         }
 
-        private SourceText GenerateTryParseEnum(
-            IEnumerable<(EnumDeclarationSyntax EnumDeclaration, EnumProcessor Processor)> input)
+        private SourceText GenerateTryParseEnum()
         {
             var sb = new StringBuilder();
             AddPartialClassHeader(sb);
@@ -114,6 +115,8 @@ namespace {AttributeNamespace}
         private SourceText GenerateAllEnumNames(
             IEnumerable<(EnumDeclarationSyntax EnumDeclaration, EnumProcessor Processor)> input)
         {
+
+            Span<char> stackBuffer = stackalloc char[MaxStackAlloc];
             var sb = new StringBuilder();
             AddPartialClassHeader(sb);
             sb.AppendLineTabbed(
@@ -125,21 +128,29 @@ namespace {AttributeNamespace}
                 foreach (var (_, proc) in input)
                 {
                     var fullEnumType = proc.EnumType.ToDisplayString(FullTypeFormat);
-                    var members = proc.Process();
+
+                    var alteredEnumName = fullEnumType.Length <= stackBuffer.Length
+                        ? stackBuffer.Slice(0, fullEnumType.Length)
+                        : new char[fullEnumType.Length];
+
+                    fullEnumType.AsSpan().ReplaceDotsWithUnderscores(alteredEnumName);
+
                     sb.AppendLineTabbed($"if (typeof(T) == typeof({fullEnumType}))", 3);
                     // If condition scope
                     // ReSharper disable once ConvertToUsingDeclaration
-                    using (new ScopeWriter(sb, 3))
-                    {
-                        sb.AppendLineTabbed($"var value = ({fullEnumType})({typeof(object).FullName})@this;", 4);
-                        foreach (var member in members)
-                        {
-                            var memberName = member.MemberName.ToDisplayString(FullTypeFormat);
-                            sb.AppendLineTabbed($"if (value == {fullEnumType}.{memberName}) return \"{memberName}\";", 4);
-                        }
+                    //using (new ScopeWriter(sb, 3))
+                    //{
+                    //    sb.AppendLineTabbed($"var value = ({fullEnumType})({typeof(object).FullName})@this;", 4);
+                    //    foreach (var member in members)
+                    //    {
+                    //        var memberName = member.MemberName.ToDisplayString(FullTypeFormat);
+                    //        sb.AppendLineTabbed($"if (value == {fullEnumType}.{memberName}) return \"{memberName}\";", 4);
+                    //    }
 
-                        sb.AppendLineTabbed("return null;", 4);
-                    }
+                    //    sb.AppendLineTabbed("return null;", 4);
+                    //}
+
+                    sb.AppendLineTabbed($"return {AttributeNamespace}.{EmittedClassName}.GetEnumName_{alteredEnumName.ToString()}(({fullEnumType})({typeof(object).FullName}) @this);", 4);
                 }
 
                 sb.AppendLineTabbed($"throw new {typeof(NotSupportedException).FullName}(\"Only enums declared with [{AttributeFullName}] are supported.\");", 3);
@@ -190,19 +201,69 @@ namespace {AttributeNamespace}
             return SourceText.From(sb.ToString(), Encoding.UTF8);
         }
 
-        private static SourceText GenerateEnumExtension(EnumProcessor proc)
+        private SourceText GenerateEnumNames(EnumProcessor proc)
         {
             var fullEnumType = proc.EnumType.ToDisplayString(FullTypeFormat);
+            var alteredEnumName = fullEnumType.Length <= MaxStackAlloc
+                ? stackalloc char[fullEnumType.Length]
+                : new char[fullEnumType.Length];
+
+            fullEnumType.AsSpan().ReplaceDotsWithUnderscores(alteredEnumName);
+
             var sb = new StringBuilder();
             AddPartialClassHeader(sb);
-
-            sb.AppendLineTabbed($"public static string GetEnumName(this {fullEnumType} @this)", 2);
-            // Method body scope
-            using (var _ = new ScopeWriter(sb, 2))
+            sb.AppendLineTabbed($"private static {typeof(string).FullName}{NullableSymbol} GetEnumName_{alteredEnumName.ToString()}({fullEnumType} value)", 2);
+            using (new ScopeWriter(sb, 2))
             {
-                foreach (var item in proc.Process()) sb.AppendLineTabbed($"if (@this == {fullEnumType}.{item.MemberName.ToDisplayString(FullTypeFormat)}) return\"{item.MemberName.Name}\";", 3);
+                foreach (var member in proc.Process())
+                {
+                    var memberName = member.MemberName.ToDisplayString(FullTypeFormat);
+                    sb.AppendLineTabbed(
+                        $"if (value == {fullEnumType}.{memberName}) return \"{memberName}\";", 3);
+                }
 
-                sb.AppendLineTabbed($"throw new {typeof(Exception).FullName}(\"Undefined enum value.\");", 3);
+                sb.AppendLineTabbed("return null;", 3);
+            }
+
+
+            AddPartialClassFooter(sb);
+
+            return SourceText.From(sb.ToString(), Encoding.UTF8);
+        }
+
+        private SourceText GenerateEnumNamesAndValues(EnumProcessor proc)
+        {
+            var fullEnumType = proc.EnumType.ToDisplayString(FullTypeFormat);
+            var alteredEnumName = fullEnumType.Length <= MaxStackAlloc
+                ? stackalloc char[fullEnumType.Length]
+                : new char[fullEnumType.Length];
+
+            fullEnumType.AsSpan().ReplaceDotsWithUnderscores(alteredEnumName);
+
+            var sb = new StringBuilder();
+            AddPartialClassHeader(sb);
+            sb.AppendLineTabbed($"private static ({typeof(string).FullName}[] Names, {fullEnumType}[] Values) GetEnumNamesAndValues_{alteredEnumName.ToString()}()", 2);
+            using (new ScopeWriter(sb, 2))
+            {
+
+                var members = proc.Process();
+
+
+                sb.AppendLineTabbed($"var names = new {typeof(string).FullName}[]", 3);
+                using (new ScopeWriter(sb, 3, true))
+                {
+                    for(var i = 0; i < members.Count; i++)
+                        sb.AppendLineTabbed($"\"{members[i].MemberName.ToDisplayString(FullTypeFormat)}\"{(i == members.Count ? "" : ",")}", 4);
+                }
+
+                sb.AppendLineTabbed($"var values = new {fullEnumType}[]", 3);
+                using (new ScopeWriter(sb, 3, true))
+                {
+                    for (var i = 0; i < members.Count; i++)
+                        sb.AppendLineTabbed($"{fullEnumType}.{members[i].MemberName.ToDisplayString(FullTypeFormat)}{(i == members.Count ? "" : ",")}", 4);
+                }
+
+                sb.AppendLineTabbed("return (names, values);", 3);
             }
 
 
